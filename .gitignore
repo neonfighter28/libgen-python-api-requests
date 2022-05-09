@@ -8,3 +8,4 @@
 /tests/#*#
 /libgenapi.egg-info/*
 dist/*
+venv/**
