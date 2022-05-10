@@ -3,25 +3,28 @@
 Library to search in Library Genesis
 """
 
-import time
+import math
 import random
 import re
-import math
 import sys
+import time
 import urllib
+import bs4
 
 if sys.version_info[0] > 3:
     import urllib.parse
-import grab
-import weblib
+
+import logging
 import warnings
-import requests
 from dataclasses import dataclass
-import logger
+
+import grab
+import requests
+import weblib
 
 # Logger settings
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.ERROR)
+logger.setLevel(logging.DEBUG)
 
 logging.getLogger("requests.packages.urllib3").setLevel(logging.ERROR)
 
@@ -580,6 +583,7 @@ class Libgenapi(object):
         self.comics = None
         self.standarts = None
         self.magzdb = None
+        self.session = requests.Session()
         if mirrors != None and len(mirrors) > 0:
             self.__choose_mirror()
 
@@ -591,46 +595,47 @@ class Libgenapi(object):
         self.__choose_mirror()
 
     def __choose_mirror(self):
+        logger.debug("%s", "Choosing mirrors")
         g = grab.Grab()
         if self.mirrors is None:
             raise MissingMirrorsError("There are no mirrors!")
         if isinstance(self.mirrors, str):
             self.mirrors = [self.mirrors]
-        last = len(self.mirrors) - 1
+
         for i, mirror in enumerate(self.mirrors):
             try:
-                if sys.version_info[0] < 3:
-                    url = mirror
-                    g.go(url)
-                else:
-                    url = mirror
-                    g.go(url)
+                url = mirror
+                logger.debug("%s", f"Fetched url {url}")
+                req = self.session.get(url)
+                content = req.content.decode()
+
+                soup = bs4.BeautifulSoup(content, features="lxml")
+                td = soup.find_all("td")
+
+                collector = []
+                for tag in td:
+                    if "name=\"lg_topic\"" in str(tag):
+                        add = re.findall(r"(?<=href\=\")[^\"]*", str(tag))[0]
+                        value = tag.input["value"]
+                        logger.debug("%s", f"URL {value = }, {add = }" )
+                        if value == "libgen":
+                            self.libgen = self.__Libgen(url + add)
+                        elif value == "fiction":
+                            self.__Fiction(url + add)
+                        elif value == "scimag":
+                            self.__Scimag(url + add)
+                        elif value == "magzdb":
+                            self.__Comics(add)
+                        else:
+                            logger.warning("%s", "Unknown Value")
+
                 self.__selected_mirror = mirror
-                categories = g.doc("//input[contains(@name,'lg_topic')]").node_list()
-                for category in categories:
-                    if category.attrib["value"] == "libgen":
-                        self.libgen = self.__Libgen(
-                            g.make_url_absolute(category.getnext().attrib["href"])
-                        )
-                    elif category.attrib["value"] == "scimag":
-                        self.scimag = self.__Scimag(
-                            g.make_url_absolute(category.getnext().attrib["href"])
-                        )
-                    elif category.attrib["value"] == "fiction":
-                        self.fiction = self.__Fiction(
-                            g.make_url_absolute(category.getnext().attrib["href"])
-                        )
-                    elif category.attrib["value"] == "comics":
-                        self.comics = self.__Comics(
-                            g.make_url_absolute(category.getnext().attrib["href"])
-                        )
                 break
-            except grab.GrabError:
-                if i == last:
-                    raise MirrorsNotResolvingError(
-                        "None of the mirrors are resolving, check"
-                        + "if they are correct or you have connection!"
-                    )
+            except requests.RequestException:
+                raise MirrorsNotResolvingError(
+                    "None of the mirrors are resolving, check"
+                    + "if they are correct or you have connection!"
+                )
 
     def search(self, search_term, column="title", number_results=25):
         warnings.warn(
