@@ -59,6 +59,7 @@ class Libgenapi(object):
     class __Libgen(object):
         def __init__(self, url):
             self.url = url
+            self.session = requests.Session()
 
         def __parse(self, doc):
             book = {
@@ -167,14 +168,11 @@ class Libgenapi(object):
             return parse_result
 
         def search(self, search_term, column="title", number_results=25):
-            g = grab.Grab()
-            request = {"req": search_term, "column": column}
-            if sys.version_info[0] < 3:
-                url = self.url + "/search.php?" + urllib.urlencode(request)
-            else:
-                url = self.url + "/search.php?" + urllib.parse.urlencode(request)
-            g.go(url)
-            search_result = []
+            resp = self.session.get(self.url + "/search.php", params={"req": search_term, "column": column})
+            content = resp.content.decode()
+            print(content)
+            soup = bs4.BeautifulSoup(content, features="lxml").find_all("tr")
+            #print(soup)
             nbooks = re.search(
                 r"([0-9]*) (books|files)",
                 g.doc.select("/html/body/table[2]/tr/td[1]/font").text(),
