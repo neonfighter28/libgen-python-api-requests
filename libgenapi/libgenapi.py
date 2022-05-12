@@ -11,14 +11,12 @@ import time
 import urllib
 import bs4
 
-if sys.version_info[0] > 3:
-    import urllib.parse
 
 import logging
 import warnings
 from dataclasses import dataclass
 
-import grab
+import dummy as grab
 import requests
 import weblib
 
@@ -28,8 +26,9 @@ logger.setLevel(logging.DEBUG)
 
 logging.getLogger("requests.packages.urllib3").setLevel(logging.ERROR)
 
-_FORMAT = '%(asctime)-5s %(levelname)s | %(funcName)30s | %(message)s'
+_FORMAT = "%(asctime)-5s %(levelname)s | %(funcName)30s | %(message)s"
 logging.basicConfig(format=_FORMAT, datefmt="%H:%M:%S")
+
 
 class MissingMirrorsError(Exception):
     """
@@ -41,6 +40,7 @@ class MirrorsNotResolvingError(Exception):
     """
     Error shown when none of the mirrors are resolving.
     """
+
 
 class Libgenapi(object):
     """
@@ -62,6 +62,7 @@ class Libgenapi(object):
             self.session = requests.Session()
 
         def __parse(self, doc):
+
             book = {
                 "id": None,
                 "author": None,
@@ -94,6 +95,38 @@ class Libgenapi(object):
                 "mirror",
             ]
             parse_result = []
+            soup = bs4.BeautifulSoup(doc, features="lxml")
+            table = soup.body.find_all("table")[2]
+            for i, row in enumerate(table.find_all("tr")):
+                if i >= 1:
+                    book = {
+                        "id": None,
+                        "author": None,
+                        "series": None,
+                        "title": None,
+                        "edition": None,
+                        "isbn": None,
+                        "publisher": None,
+                        "year": None,
+                        "pages": None,
+                        "language": None,
+                        "size": None,
+                        "extension": None,
+                        "mirrors": None,
+                    }
+                    values = row.find_all("td")
+                    book["id"] = values[0].text
+                    book["author"] = values[1].text
+                    book["series_title_edition_and_isbn"] = values[2].text
+                    book["publisher"] = values[3]
+                    book["year"] = values[4]
+                    book["pages"] = values[5]
+                    book["language"] = values[6]
+                    book["size"] = values[7]
+                    book["extension"] = values[8]
+                    book["mirrors"] = values[9]
+                    print(book)
+
             for resultRow in doc.select(
                 '//body/table[contains(@class,"c")]//tr[position()>1]'
             ):
@@ -133,7 +166,7 @@ class Libgenapi(object):
                             # If there isn't an exception there is series,isbn or edition or all,
                             # now we have to separate it...
                             #
-                            # Cheking if there is any "green" text.
+                            # Checking if there is any "green" text.
                             # If there is it means there is the title and something else.
                             # This makes an exception if there is nothing, which means no green text.
                             green_text = resultColumn.select("a/font")
@@ -168,35 +201,43 @@ class Libgenapi(object):
             return parse_result
 
         def search(self, search_term, column="title", number_results=25):
-            resp = self.session.get(self.url + "/search.php", params={"req": search_term, "column": column})
-            content = resp.content.decode()
-            print(content)
-            soup = bs4.BeautifulSoup(content, features="lxml").find_all("tr")
-            #print(soup)
-            nbooks = re.search(
-                r"([0-9]*) (books|files)",
-                g.doc.select("/html/body/table[2]/tr/td[1]/font").text(),
+            resp = self.session.get(
+                self.url + "/search.php", params={"req": search_term, "column": column}
             )
-            nbooks = int(nbooks.group(1))
+
+            soup = bs4.BeautifulSoup(resp.content.decode(), features="lxml")
+
+            # Find a nested tag in the second table element
+            # containing the amount of results
+            #
+            # <body>
+            #   <table></table>
+            #   <table>"text to be extracted"</table>
+            tag = soup.html.body.find_all("table")[1].text
+
+            # Text of said tag starts with a digit, number of results
+            nbooks = int(re.search(r"\d+", tag).group())
+
             pages_to_load = int(
                 math.ceil(number_results / 25.0)
             )  # Pages needed to be loaded
+
             # Check if the pages needed to be loaded are more than the pages available
             if pages_to_load > int(math.ceil(nbooks / 25.0)):
                 pages_to_load = int(math.ceil(nbooks / 25.0))
+            search_result = []
             for page in range(1, pages_to_load + 1):
                 if (
                     len(search_result) > number_results
                 ):  # Check if we got all the results
                     break
                 url = ""
-                request.update({"page": page})
-                if sys.version_info[0] < 3:
-                    url = self.url + "/search.php?" + urllib.urlencode(request)
-                else:
-                    url = self.url + "/search.php?" + urllib.parse.urlencode(request)
-                g.go(url)
-                search_result += self.__parse(g.doc)
+                res = self.session.get(
+                    self.url + "/search.php?",
+                    params={"req": search_term, "column": column, "page": page},
+                )
+                text = res.content.decode()
+                search_result += self.__parse(text)
                 if page != pages_to_load:
                     # Random delay because if you ask a lot of pages,your ip might get blocked.
                     time.sleep(random.randint(250, 1000) / 1000.0)
@@ -594,13 +635,12 @@ class Libgenapi(object):
 
     def __choose_mirror(self):
         logger.debug("%s", "Choosing mirrors")
-        g = grab.Grab()
         if self.mirrors is None:
             raise MissingMirrorsError("There are no mirrors!")
         if isinstance(self.mirrors, str):
             self.mirrors = [self.mirrors]
 
-        for i, mirror in enumerate(self.mirrors):
+        for mirror in self.mirrors:
             try:
                 url = mirror
                 logger.debug("%s", f"Fetched url {url}")
@@ -610,12 +650,11 @@ class Libgenapi(object):
                 soup = bs4.BeautifulSoup(content, features="lxml")
                 td = soup.find_all("td")
 
-                collector = []
                 for tag in td:
-                    if "name=\"lg_topic\"" in str(tag):
+                    if 'name="lg_topic"' in str(tag):
                         add = re.findall(r"(?<=href\=\")[^\"]*", str(tag))[0]
                         value = tag.input["value"]
-                        logger.debug("%s", f"URL {value = }, {add = }" )
+                        logger.debug("%s", f"URL {value = }, {add = }")
                         if value == "libgen":
                             self.libgen = self.__Libgen(url + add)
                         elif value == "fiction":
