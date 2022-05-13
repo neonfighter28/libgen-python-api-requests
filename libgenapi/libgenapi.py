@@ -18,7 +18,6 @@ from dataclasses import dataclass
 
 import dummy as grab
 import requests
-import weblib
 
 # Logger settings
 logger = logging.getLogger(__name__)
@@ -29,7 +28,8 @@ logging.getLogger("requests.packages.urllib3").setLevel(logging.ERROR)
 _FORMAT = "%(asctime)-5s %(levelname)s | %(funcName)30s | %(message)s"
 logging.basicConfig(format=_FORMAT, datefmt="%H:%M:%S")
 
-
+_REG_ISBN = r"(ISBN[-]*(1[03])*[ ]*(: ){0,1})*(([0-9Xx][- ]*){13}|([0-9Xx][- ]*){10})"
+_REG_EDITION = r"(\[[0-9] ed\.\])"
 class MissingMirrorsError(Exception):
     """
     Error shown when there are no mirrors.
@@ -115,88 +115,59 @@ class Libgenapi(object):
                         "mirrors": None,
                     }
                     values = row.find_all("td")
-                    book["id"] = values[0].text
-                    book["author"] = values[1].text
-                    book["series_title_edition_and_isbn"] = values[2].text
-                    book["publisher"] = values[3]
-                    book["year"] = values[4]
-                    book["pages"] = values[5]
-                    book["language"] = values[6]
-                    book["size"] = values[7]
-                    book["extension"] = values[8]
-                    book["mirrors"] = values[9]
-                    print(book)
+                    for i, value in enumerate(values):
+                        if i > len(d_keys) - 1:
+                            break
+                        if d_keys[i] == "mirror":
+                            mirror = value.find("a")["href"]
+                            if len(mirror) > 0:
+                                if book["mirrors"] is None:
+                                    book["mirrors"] = [mirror]
+                                else:
+                                    book["mirrors"] += [mirror]
+                                book["mirrors"][-1] = book["mirrors"][-1].replace(
+                                    "../", self.url + "/"
+                                )
+                        elif d_keys[i] == "series_title_edition_and_isbn":
+                            try:
+                                # If there isn't an exception there is series,isbn or edition or all,
+                                # now we have to separate it...
+                                #
+                                # Checking if there is any "green" text.
+                                # If there is it means there is the title and something else.
+                                # This raises an exception if there is no green text which is
+                                # handled later on
+                                value.find("a").find("font")["color"]
 
-            for resultRow in doc.select(
-                '//body/table[contains(@class,"c")]//tr[position()>1]'
-            ):
-                i = 0
-                book = {
-                    "id": None,
-                    "author": None,
-                    "series": None,
-                    "title": None,
-                    "edition": None,
-                    "isbn": None,
-                    "publisher": None,
-                    "year": None,
-                    "pages": None,
-                    "language": None,
-                    "size": None,
-                    "extension": None,
-                    "mirrors": None,
-                }
-                for resultColumn in resultRow.select("td[position()<last()]"):
-                    if i > len(d_keys) - 1:
-                        break
-                    if d_keys[i] == "mirror":  # Getting mirror links
-                        mirror = resultColumn.select("a/@href")
-                        if len(mirror) > 0:
-                            if book["mirrors"] is None:
-                                book["mirrors"] = [mirror.text()]
-                            else:
-                                book["mirrors"] += [mirror.text()]
-                            book["mirrors"][-1] = book["mirrors"][-1].replace(
-                                "../", self.url + "/"
-                            )
-                    elif (
-                        d_keys[i] == "series_title_edition_and_isbn"
-                    ):  # Getting title,isbn,series,edition.
-                        try:
-                            # If there isn't an exception there is series,isbn or edition or all,
-                            # now we have to separate it...
-                            #
-                            # Checking if there is any "green" text.
-                            # If there is it means there is the title and something else.
-                            # This makes an exception if there is nothing, which means no green text.
-                            green_text = resultColumn.select("a/font")
-                            book["title"] = resultColumn.select("a/text()").text()
-                            # A regex I found for isbn, not sure if perfect but better than mine.
-                            reg_isbn = re.compile(
-                                r"(ISBN[-]*(1[03])*[ ]*(: ){0,1})*"
-                                + "(([0-9Xx][- ]*){13}|([0-9Xx][- ]*){10})"
-                            )
-                            reg_edition = re.compile(r"(\[[0-9] ed\.\])")
-                            for element in green_text:
-                                if (
-                                    reg_isbn.search(element.text()) != None
-                                ):  # isbn found
-                                    book["isbn"] = [
-                                        reg_isbn.search(_).group(0)
-                                        for _ in element.text().split(",")
-                                        if reg_isbn.search(_) != None
-                                    ]
-                                elif (
-                                    reg_edition.search(element.text()) != None
-                                ):  # edition found
-                                    book["edition"] = element.text()
-                                else:  # Series found
-                                    book["series"] = element.text()
-                        except weblib.error.DataNotFound:  # Easy, there is just the title.
-                            book["title"] = resultColumn.text()  # Title found
-                    else:
-                        book[d_keys[i]] = resultColumn.text()
-                    i += 1
+                                green_text = value.find_all("a")
+
+                                book["title"] = value.find("a").text
+
+                                # A regex I found for isbn, not sure if perfect but better than mine.
+                                reg_isbn = re.compile(_REG_ISBN)
+                                reg_edition = re.compile(_REG_EDITION)
+                                for element in green_text:
+                                    txt = str(element)
+
+                                    if (
+                                        reg_isbn.search(txt) != None
+                                    ):  # isbn found
+                                        book["isbn"] = [
+                                            reg_isbn.search(_).group()
+                                            for _ in element.text.split(",")
+                                            if reg_isbn.search(_) != None
+                                        ]
+                                    elif (
+                                        reg_edition.search(txt) != None
+                                    ):  # edition found
+                                        book["edition"] = element.text
+                                    else:  # Series found
+                                        book["series"] = element.text
+                            except TypeError:
+                                book["title"] = value.text
+                        else:
+                            book[d_keys[i]] = value.text
+
                 parse_result += [book]
             return parse_result
 
@@ -219,7 +190,7 @@ class Libgenapi(object):
             nbooks = int(re.search(r"\d+", tag).group())
 
             pages_to_load = int(
-                math.ceil(number_results / 25.0)
+                number_results / 25.0
             )  # Pages needed to be loaded
 
             # Check if the pages needed to be loaded are more than the pages available
@@ -231,7 +202,7 @@ class Libgenapi(object):
                     len(search_result) > number_results
                 ):  # Check if we got all the results
                     break
-                url = ""
+
                 res = self.session.get(
                     self.url + "/search.php?",
                     params={"req": search_term, "column": column, "page": page},
@@ -241,6 +212,7 @@ class Libgenapi(object):
                 if page != pages_to_load:
                     # Random delay because if you ask a lot of pages,your ip might get blocked.
                     time.sleep(random.randint(250, 1000) / 1000.0)
+
             return search_result[:number_results]
 
     class __Scimag(object):
@@ -613,7 +585,7 @@ class Libgenapi(object):
                     time.sleep(random.randint(250, 1000) / 1000.0)
             return search_result[:number_results]
 
-    def __init__(self, mirrors=None):
+    def __init__(self, mirrors=None, debug=False):
         self.mirrors = mirrors
         self.__selected_mirror = None
         self.libgen = None
@@ -623,6 +595,9 @@ class Libgenapi(object):
         self.standarts = None
         self.magzdb = None
         self.session = requests.Session()
+        if debug:
+            logger.setLevel(logging.DEBUG)
+
         if mirrors != None and len(mirrors) > 0:
             self.__choose_mirror()
 
