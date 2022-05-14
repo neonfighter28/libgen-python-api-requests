@@ -10,7 +10,6 @@ import sys
 import time
 import urllib
 import bs4
-from objects import Book
 
 
 import logging
@@ -64,7 +63,21 @@ class Libgenapi(object):
 
         def __parse(self, doc):
 
-            book = Book()
+            book = {
+                "id": None,
+                "author": None,
+                "series": None,
+                "title": None,
+                "edition": None,
+                "isbn": None,
+                "publisher": None,
+                "year": None,
+                "pages": None,
+                "language": None,
+                "size": None,
+                "extension": None,
+                "mirrors": None,
+            }
             i = 0
             d_keys = [
                 "id",
@@ -86,20 +99,33 @@ class Libgenapi(object):
             table = soup.body.find_all("table")[2]
             for i, row in enumerate(table.find_all("tr")):
                 if i >= 1:
-                    book = Book()
+                    book = {
+                        "id": None,
+                        "author": None,
+                        "series": None,
+                        "title": None,
+                        "edition": None,
+                        "isbn": None,
+                        "publisher": None,
+                        "year": None,
+                        "pages": None,
+                        "language": None,
+                        "size": None,
+                        "extension": None,
+                        "mirrors": None,
+                    }
                     values = row.find_all("td")
                     for i, value in enumerate(values):
-                        book = Book()
                         if i > len(d_keys) - 1:
                             break
                         if d_keys[i] == "mirror":
                             mirror = value.find("a")["href"]
                             if len(mirror) > 0:
-                                if book.mirrors is None:
-                                    book.mirrors = [mirror]
+                                if book["mirrors"] is None:
+                                    book["mirrors"] = [mirror]
                                 else:
-                                    book.mirrors += [mirror]
-                                book.mirrors[-1] = book.mirrors[-1].replace(
+                                    book["mirrors"] += [mirror]
+                                book["mirrors"][-1] = book["mirrors"][-1].replace(
                                     "../", self.url + "/"
                                 )
                         elif d_keys[i] == "series_title_edition_and_isbn":
@@ -115,7 +141,7 @@ class Libgenapi(object):
 
                                 green_text = value.find_all("a")
 
-                                book.title = value.find("a").text
+                                book["title"] = value.find("a").text
 
                                 # A regex I found for isbn, not sure if perfect but better than mine.
                                 reg_isbn = re.compile(_REG_ISBN)
@@ -126,7 +152,7 @@ class Libgenapi(object):
                                     if (
                                         reg_isbn.search(txt) != None
                                     ):  # isbn found
-                                        book.isbn = [
+                                        book["isbn"] = [
                                             reg_isbn.search(_).group()
                                             for _ in element.text.split(",")
                                             if reg_isbn.search(_) != None
@@ -134,37 +160,13 @@ class Libgenapi(object):
                                     elif (
                                         reg_edition.search(txt) != None
                                     ):  # edition found
-                                        book.edition = element.text
+                                        book["edition"] = element.text
                                     else:  # Series found
-                                        book.series = element.text
+                                        book["series"] = element.text
                             except TypeError:
-                                book.title = value.text
+                                book["title"] = value.text
                         else:
-                            match d_keys[i]:
-                                case "id":
-                                    book.id = value.text
-                                case "author":
-                                    book.author = value.text
-                                case "series":
-                                    book.series = value.text
-                                case "title":
-                                    book.title = value.text
-                                case "edition":
-                                    book.edition = value.text
-                                case "isbn":
-                                    book.isbn = value.text
-                                case "publisher":
-                                    book.publisher = value.text
-                                case "year":
-                                    book.year = value.text
-                                case "pages":
-                                    book.pages = value.text
-                                case "language":
-                                    book.language = value.text
-                                case "size":
-                                    book.size = value.text
-                                case "extension":
-                                    book.extension = value.text
+                            book[d_keys[i]] = value.text
 
                 parse_result += [book]
             return parse_result
