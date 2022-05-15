@@ -3,21 +3,19 @@
 Library to search in Library Genesis
 """
 
+import logging
 import math
 import random
 import re
 import sys
 import time
 import urllib
+
 import bs4
-
-
-import logging
-import warnings
-from dataclasses import dataclass
+import requests
 
 import dummy as grab
-import requests
+from objects import Book
 
 # Logger settings
 logger = logging.getLogger(__name__)
@@ -30,6 +28,8 @@ logging.basicConfig(format=_FORMAT, datefmt="%H:%M:%S")
 
 _REG_ISBN = r"(ISBN[-]*(1[03])*[ ]*(: ){0,1})*(([0-9Xx][- ]*){13}|([0-9Xx][- ]*){10})"
 _REG_EDITION = r"(\[[0-9] ed\.\])"
+
+
 class MissingMirrorsError(Exception):
     """
     Error shown when there are no mirrors.
@@ -62,38 +62,8 @@ class Libgenapi(object):
             self.session = requests.Session()
 
         def __parse(self, doc):
-
-            book = {
-                "id": None,
-                "author": None,
-                "series": None,
-                "title": None,
-                "edition": None,
-                "isbn": None,
-                "publisher": None,
-                "year": None,
-                "pages": None,
-                "language": None,
-                "size": None,
-                "extension": None,
-                "mirrors": None,
-            }
             i = 0
-            d_keys = [
-                "id",
-                "author",
-                "series_title_edition_and_isbn",
-                "publisher",
-                "year",
-                "pages",
-                "language",
-                "size",
-                "extension",
-                "mirror",
-                "mirror",
-                "mirror",
-                "mirror",
-            ]
+            d_keys = Book.d_keys
             parse_result = []
             soup = bs4.BeautifulSoup(doc, features="lxml")
             table = soup.body.find_all("table")[2]
@@ -149,9 +119,7 @@ class Libgenapi(object):
                                 for element in green_text:
                                     txt = str(element)
 
-                                    if (
-                                        reg_isbn.search(txt) != None
-                                    ):  # isbn found
+                                    if reg_isbn.search(txt) != None:  # isbn found
                                         book["isbn"] = [
                                             reg_isbn.search(_).group()
                                             for _ in element.text.split(",")
@@ -168,10 +136,20 @@ class Libgenapi(object):
                         else:
                             book[d_keys[i]] = value.text
 
-                parse_result += [book]
+                    parse_result += [book]
             return parse_result
 
         def search(self, search_term, column="title", number_results=25):
+            """Searches the mirror for the passed query
+
+            Args:
+                search_term (str): Search term for the library
+                column (str, optional): Column to search. Defaults to "title".
+                number_results (int, optional): Number of results per page. Defaults to 25.
+
+            Returns:
+                dict: Dictionary containing the book details
+            """
             resp = self.session.get(
                 self.url + "/search.php", params={"req": search_term, "column": column}
             )
@@ -186,12 +164,10 @@ class Libgenapi(object):
             #   <table>"text to be extracted"</table>
             tag = soup.html.body.find_all("table")[1].text
 
-            # Text of said tag starts with a digit, number of results
+            # Text of said tag starts with a digit (number of results)
             nbooks = int(re.search(r"\d+", tag).group())
 
-            pages_to_load = int(
-                number_results / 25.0
-            )  # Pages needed to be loaded
+            pages_to_load = int(number_results / 25.0)  # Pages needed to be loaded
 
             # Check if the pages needed to be loaded are more than the pages available
             if pages_to_load > int(math.ceil(nbooks / 25.0)):
@@ -220,7 +196,7 @@ class Libgenapi(object):
             self.url = url
 
         def __parse(self, g):
-            doc = g.doc
+            soup = bs4.BeautifulSoup(g, features="lxml")
             article = {
                 "doi": None,
                 "author": None,
@@ -252,7 +228,7 @@ class Libgenapi(object):
                 "size",
             ]
             parse_result = []
-            for resultRow in doc.select("//body/table[2]/tr"):
+            for resultRow in soup.html.body.find("table", class_="catalog").find("tbody").find_all("tr"):
                 article = {
                     "doi": None,
                     "author": None,
@@ -273,14 +249,14 @@ class Libgenapi(object):
                     "mirrors": [],
                 }
                 i = 0
-                for resultColumn in resultRow.select("td"):
+                for resultColumn in resultRow.find_all("td"):
+                    #print(resultColumn)
                     if i > len(d_keys) - 1:
                         break
+                    #print(resultRow)
                     if d_keys[i] == "doi_and_mirrors":  # Getting doi and mirrors links
-                        article["doi"] = resultColumn.select("table/tr[1]/td[2]").text()
-                        mirrors = resultColumn.select("table/tr//a/@href")
-                        for mirror in mirrors:
-                            article["mirrors"] += [g.make_url_absolute(mirror.text())]
+                        mirrors = resultRow.find("ul").find_all("a", href=True)
+                        article["doi"] = [mirror["href"] for mirror in mirrors]
                     elif d_keys[i] == "issn":
                         article["issn"] = resultColumn.select("*/text()").node_list()
                     elif d_keys[i] == "issue":
@@ -288,15 +264,16 @@ class Libgenapi(object):
                             x.split(":")[1]
                             for x in resultColumn.select("text()").node_list()
                         ]
+                        # TODO: Assert these actually work
                         article["issue"]["year"] = temp[0]
                         article["issue"]["month"] = temp[1]
                         article["issue"]["day"] = temp[2]
-                        article["issue"]["volume"] = temp[3]
-                        article["issue"]["issue"] = temp[4]
+                        article["issue"]["volume"] = re.search(r"(?<=volume\s)\d+", str(resultRow)).group()
+                        article["issue"]["issue"] = re.search(r"(?<=issue\s)\d+", str(resultRow)).group()
                         article["issue"]["first_page"] = temp[5]
                         article["issue"]["last_page"] = temp[6]
                     else:
-                        article[d_keys[i]] = resultColumn.text()
+                        article[d_keys[i]] = resultColumn.text
                     i += 1
                 parse_result += [article]
             return parse_result
@@ -310,27 +287,40 @@ class Libgenapi(object):
             pages="",
             number_results=25,
         ):
-            g = grab.Grab()
-            request = {
-                "s": search_term,
-                "journalid": journal_title_issn,
-                "v": volume_year,
-                "i": issue,
-                "p": pages,
-                "redirect": "0",
-            }
-            if sys.version_info[0] < 3:
-                url = self.url + "?" + urllib.urlencode(request)
-            else:
-                url = self.url + "?" + urllib.parse.urlencode(request)
-            g.go(url)
+            """Search scimag
+
+            Args:
+                search_term (str, optional): Search term. Defaults to "".
+                journal_title_issn (str, optional): journal title. Defaults to "".
+                volume_year (str, optional): volume year. Defaults to "".
+                issue (str, optional): issue. Defaults to "".
+                pages (str, optional): pages. Defaults to "".
+                number_results (int, optional): number of results. Defaults to 25.
+
+            Returns:
+                _type_: _description_
+            """
+            resp = requests.get(
+                url=self.url,
+                params={
+                    "s": search_term,
+                    "journalid": journal_title_issn,
+                    "v": volume_year,
+                    "i": issue,
+                    "p": pages,
+                    "redirect": "0",
+                },
+            )
+            content = resp.content.decode()
+            soup = bs4.BeautifulSoup(content, features="lxml")
             search_result = []
             # body > font:nth-child(7) Displayed first  100  results
             # body > font:nth-child(7) Found 1 results
             nresults = re.search(
-                r"([0-9]*) results", g.doc.select("/html/body/font[1]").one().text()
-            )
-            nresults = int(nresults.group(1))
+                r"\d+", soup.html.body.find("div", class_="catalog_paginator").find("div", style="float:left").text
+            ).group()
+
+            nresults = int(nresults)
             pages_to_load = int(
                 math.ceil(number_results / 25.0)
             )  # Pages needed to be loaded
@@ -342,14 +332,19 @@ class Libgenapi(object):
                     len(search_result) > number_results
                 ):  # Check if we got all the results
                     break
-                url = ""
-                request.update({"page": page})
-                if sys.version_info[0] < 3:
-                    url = self.url + "?" + urllib.urlencode(request)
-                else:
-                    url = self.url + "?" + urllib.parse.urlencode(request)
-                g.go(url)
-                search_result += self.__parse(g)
+                resp = requests.get(
+                    url=self.url,
+                    params={
+                        "s": search_term,
+                        "journalid": journal_title_issn,
+                        "v": volume_year,
+                        "i": issue,
+                        "p": pages,
+                        "redirect": "0",
+                        "page": page
+                    },
+                )
+                search_result += self.__parse(resp.content.decode())
                 if page != pages_to_load:
                     # Random delay because if you ask a lot of pages,your ip might get blocked.
                     time.sleep(random.randint(250, 1000) / 1000.0)
@@ -360,7 +355,7 @@ class Libgenapi(object):
             self.url = url
 
         def __parse(self, g):
-            doc = g.doc
+            soup = bs4.BeautifulSoup(g, features="lxml")
             book = {
                 "author": None,
                 "series": None,
@@ -380,8 +375,11 @@ class Libgenapi(object):
                 "language",
                 "libgenID_size_fileType_timeAdded_mirrors",
             ]
+            print(soup.html.body.find("table", class_="catalog"))
             parse_result = []
             for resultRow in doc.select("/html/body/table[2]/tr"):
+                soup.html.body.find("table", class_="catalog")
+
                 i = 0
                 book = {
                     "author": None,
@@ -633,11 +631,11 @@ class Libgenapi(object):
                         if value == "libgen":
                             self.libgen = self.__Libgen(url + add)
                         elif value == "fiction":
-                            self.__Fiction(url + add)
+                            self.fiction = self.__Fiction(url + add)
                         elif value == "scimag":
-                            self.__Scimag(url + add)
+                            self.scimag = self.__Scimag(url + add)
                         elif value == "magzdb":
-                            self.__Comics(add)
+                            self.comics = self.__Comics(add)
                         else:
                             logger.warning("%s", "Unknown Value")
 
@@ -649,10 +647,8 @@ class Libgenapi(object):
                     + "if they are correct or you have connection!"
                 )
 
-    def search(self, search_term, column="title", number_results=25):
-        warnings.warn(
-            "Deprecated Method, use Libgenapi().libgen.search() instead.",
-            DeprecationWarning,
-            stacklevel=2,
+    def search(self, *args, **kwargs):
+        logger.warning(
+            "%s", "Deprecated method, use Libgenapi().libgen.search() instead"
         )
-        return self.libgen.search(search_term, column, number_results)
+        return self.libgen.search(*args, **kwargs)
