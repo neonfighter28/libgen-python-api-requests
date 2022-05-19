@@ -2,7 +2,6 @@
 """
 Library to search in Library Genesis
 """
-
 import logging
 import math
 import random
@@ -15,7 +14,7 @@ import bs4
 import requests
 
 import dummy as grab
-from objects import Book
+from objects import book_obj as Book
 
 # Logger settings
 logger = logging.getLogger(__name__)
@@ -46,7 +45,6 @@ def _search(
         number_results: int = 25,
         _url: str = None,
         _params: dict = None,
-
         ):
 
     resp = requests.get(
@@ -336,16 +334,6 @@ class Libgenapi(object):
             pages="",
             number_results=25,
         ):
-            return _search(
-                _url=self.url,
-                _params={
-                    "search_term": search_term,
-                    "journal_title_issn": journal_title_issn,
-                    "volume_year": volume_year,
-                    "issue": issue,
-                    "pages": pages,
-                },
-            )
             """Search scimag
 
             Args:
@@ -357,7 +345,19 @@ class Libgenapi(object):
                 number_results (int, optional): number of results. Defaults to 25.
 
             Returns:
-                _type_: _description_
+                list[dict]: Search Results
+            """
+            """
+                return _search(
+                    _url=self.url,
+                    _params={
+                        "search_term": search_term,
+                        "journal_title_issn": journal_title_issn,
+                        "volume_year": volume_year,
+                        "issue": issue,
+                        "pages": pages,
+                    },
+                )
             """
             resp = requests.get(
                 url=self.url,
@@ -434,49 +434,33 @@ class Libgenapi(object):
                 "language",
                 "libgenID_size_fileType_timeAdded_mirrors",
             ]
-            #print(soup.html.body.find("table", class_="catalog"))
-            parse_result = []
-            for resultRow in soup.html.body.find("table", class_="catalog").find_all("tr"):
-                soup.html.body.find("table", class_="catalog")
 
-                i = 0
+            parse_result = []
+            for resultRow in soup.html.body.find("table", class_="catalog").tbody.find_all("tr"):
                 book = {
                     "author": None,
                     "series": None,
                     "title": None,
                     "language": None,
-                    "libgenID": None,
                     "size": None,
                     "timeAdded": None,
                     "mirrors": [],
                 }
-                for resultColumn in resultRow.select("td"):
+
+                for i, resultColumn in enumerate(resultRow.find_all("td")):
                     if i > len(d_keys) - 1:
                         break
-                    if (
-                        d_keys[i] == "libgenID_size_fileType_timeAdded_mirrors"
-                    ):  # Getting Libgen Id, size, fileType, time Added and mirror links.
-                        mirrors = resultColumn.find_all("a", href=True)
-                        for mirror in mirrors:
-                            print(mirror)
-                            book["mirrors"] += [g.make_url_absolute(mirror.text)]
-                        re_libgenID_timeAdded = re.compile(
-                            r".*libgen ID:(.*);.*Timeadded: (.*)$"
-                        )
-                        # print(resultColumn)
-                        data = resultColumn.select("div/a/@title")[0].text
-                        data = re_libgenID_timeAdded.search(data)
-                        book["libgenID"] = data.group(1)
-                        book["timeAdded"] = data.group(2)
-                        data = resultColumn.select("div/a")[0]
-                        data = data.text()
-                        re_fileType_size = re.compile(r"(.*)\((.*)\)")
-                        data = re_fileType_size.search(data)
-                        book["fileType"] = data.group(1)
-                        book["size"] = data.group(2)
+                    if d_keys[i] == "libgenID_size_fileType_timeAdded_mirrors":  # Getting Libgen Id, size, fileType, time Added and mirror links.
+                        for mirror in resultRow.find("ul", class_="record_mirrors_compact").find_all("a", href=True):
+                            book["mirrors"] += [mirror["href"]]
+
+                        book["timeAdded"] = resultRow.find("td", title=True)["title"]
+                        data = resultRow.find("td", title=True).text
+                        book["fileType"] = re.search(r"\w+", data).group()
+                        book["size"] = re.search(r"\d+\s\w+", data).group()
+
                     else:
-                        book[d_keys[i]] = resultColumn.text
-                    i += 1
+                        book[d_keys[i]] = resultColumn.text.strip("\n")
                 parse_result += [book]
             return parse_result
 
@@ -521,7 +505,6 @@ class Libgenapi(object):
                 if page != pages_to_load:
                     # Random delay because if you ask a lot of pages,your ip might get blocked.
                     time.sleep(random.randint(250, 1000) / 1000.0)
-            print(search_result)
             return search_result[:number_results]
 
     class __Comics(object):
