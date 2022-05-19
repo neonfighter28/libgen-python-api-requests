@@ -42,6 +42,55 @@ class MirrorsNotResolvingError(Exception):
     """
 
 
+def _search(
+        number_results: int = 25,
+        _url: str = None,
+        _params: dict = None,
+
+        ):
+
+    resp = requests.get(
+        url=_url, params=_params
+    )
+
+    soup = bs4.BeautifulSoup(resp.text, features="lxml")
+
+    # Find a nested tag in the second table element
+    # containing the amount of results
+    #
+    # <body>
+    #   <table></table>
+    #   <table>"text to be extracted"</table>
+    tag = soup.html.body.find_all("table")[1].text
+
+    # Text of said tag starts with a digit (number of results)
+    nbooks = int(re.search(r"\d+", tag).group())
+
+    pages_to_load = int(number_results / 25.0)  # Pages needed to be loaded
+
+    # Check if the pages needed to be loaded are more than the pages available
+    if pages_to_load > int(math.ceil(nbooks / 25.0)):
+        pages_to_load = int(math.ceil(nbooks / 25.0))
+    search_result = []
+    for page in range(1, pages_to_load + 1):
+        if (
+            len(search_result) > number_results
+        ):  # Check if we got all the results
+            break
+
+        res = requests.get(
+            _url + "/search.php?",
+            params=_params.update({"page": page}),
+        )
+        text = res.content.decode()
+        search_result += self.__parse(text)
+        if page != pages_to_load:
+            # Random delay because if you ask a lot of pages,your ip might get blocked.
+            time.sleep(random.randint(250, 1000) / 1000.0)
+
+    return search_result[:number_results]
+
+
 class Libgenapi(object):
     """
     Main class representing the library
@@ -287,6 +336,16 @@ class Libgenapi(object):
             pages="",
             number_results=25,
         ):
+            return _search(
+                _url=self.url,
+                _params={
+                    "search_term": search_term,
+                    "journal_title_issn": journal_title_issn,
+                    "volume_year": volume_year,
+                    "issue": issue,
+                    "pages": pages,
+                },
+            )
             """Search scimag
 
             Args:
@@ -375,9 +434,9 @@ class Libgenapi(object):
                 "language",
                 "libgenID_size_fileType_timeAdded_mirrors",
             ]
-            print(soup.html.body.find("table", class_="catalog"))
+            #print(soup.html.body.find("table", class_="catalog"))
             parse_result = []
-            for resultRow in doc.select("/html/body/table[2]/tr"):
+            for resultRow in soup.html.body.find("table", class_="catalog").find_all("tr"):
                 soup.html.body.find("table", class_="catalog")
 
                 i = 0
@@ -397,13 +456,15 @@ class Libgenapi(object):
                     if (
                         d_keys[i] == "libgenID_size_fileType_timeAdded_mirrors"
                     ):  # Getting Libgen Id, size, fileType, time Added and mirror links.
-                        mirrors = resultColumn.select("div/a/@href")
+                        mirrors = resultColumn.find_all("a", href=True)
                         for mirror in mirrors:
-                            book["mirrors"] += [g.make_url_absolute(mirror.text())]
+                            print(mirror)
+                            book["mirrors"] += [g.make_url_absolute(mirror.text)]
                         re_libgenID_timeAdded = re.compile(
                             r".*libgen ID:(.*);.*Timeadded: (.*)$"
                         )
-                        data = resultColumn.select("div/a/@title")[0].text()
+                        # print(resultColumn)
+                        data = resultColumn.select("div/a/@title")[0].text
                         data = re_libgenID_timeAdded.search(data)
                         book["libgenID"] = data.group(1)
                         book["timeAdded"] = data.group(2)
@@ -414,28 +475,29 @@ class Libgenapi(object):
                         book["fileType"] = data.group(1)
                         book["size"] = data.group(2)
                     else:
-                        book[d_keys[i]] = resultColumn.text()
+                        book[d_keys[i]] = resultColumn.text
                     i += 1
                 parse_result += [book]
             return parse_result
 
-        def search(self, search_term="", pages="", number_results=25):
-            # TODO: Add missing search parameters.
-            g = grab.Grab()
-            request = {"s": search_term, "p": pages}
-            if sys.version_info[0] < 3:
-                url = self.url + "?" + urllib.urlencode(request)
-            else:
-                url = self.url + "?" + urllib.parse.urlencode(request)
-            g.go(url)
+        def search(self, search_term="", pages="", number_results=25, _params=None):
+            resp = requests.get(
+                url=self.url,
+                params={
+                    "s": search_term,
+                    "p": pages,
+                },
+            )
+            content = resp.content.decode()
+            soup = bs4.BeautifulSoup(content, features="lxml")
             search_result = []
             # body > font:nth-child(7) Displayed first  100  results
             # body > font:nth-child(7) Found 1 results
             nresults = re.search(
-                r"([0-9]*) results", g.doc.select("/html/body/font[1]").one().text()
-            )
+                r"\d+", soup.html.body.find("div", class_="catalog_paginator").find("div", style="float:left").text
+            ).group()
 
-            nresults = int(nresults.group(1))
+            nresults = int(nresults)
             pages_to_load = int(
                 math.ceil(number_results / 25.0)
             )  # Pages needed to be loaded
@@ -447,17 +509,19 @@ class Libgenapi(object):
                     len(search_result) > number_results
                 ):  # Check if we got all the results
                     break
-                url = ""
-                request.update({"page": page})
-                if sys.version_info[0] < 3:
-                    url = self.url + "?" + urllib.urlencode(request)
-                else:
-                    url = self.url + "?" + urllib.parse.urlencode(request)
-                g.go(url)
-                search_result += self.__parse(g)
+                resp = requests.get(
+                    url=self.url,
+                    params={
+                        "s": search_term,
+                        "p": pages,
+                        "page": page
+                    },
+                )
+                search_result += self.__parse(resp.content.decode())
                 if page != pages_to_load:
                     # Random delay because if you ask a lot of pages,your ip might get blocked.
                     time.sleep(random.randint(250, 1000) / 1000.0)
+            print(search_result)
             return search_result[:number_results]
 
     class __Comics(object):
