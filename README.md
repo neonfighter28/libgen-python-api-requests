@@ -1,6 +1,10 @@
 # libgen-python-api
 A Python library that provides an api to search and get links from Books,Magazines,Comics,... from Library Genesis.
 
+This fork does NOT depend on grab, nor its dependency libcurl, instead
+requests is used
+
+
 Requirements:
 -------------
 * Python 2/3
