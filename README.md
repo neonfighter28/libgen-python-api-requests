@@ -1,14 +1,16 @@
-# libgen-python-api
+# libgen-python-api-requests
 A Python library that provides an api to search and get links from Books,Magazines,Comics,... from Library Genesis.
 
 This fork does NOT depend on grab, nor its dependency libcurl, instead
-requests is used
+requests is used. Provides about the same functionality, working as of 24/05/2022.
+
+All credits go to the original author, this is just a rewrite/refactor of the same library providing the same functionality. License is as upstream
 
 
 Requirements:
 -------------
-* Python 2/3
-* Grab library and it's dependencies.
+* Python 3
+* requests, bs4
 
 Libgen Mirrors where it has worked in the past
 ---------------------------------------------
