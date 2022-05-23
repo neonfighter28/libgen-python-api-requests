@@ -39,14 +39,12 @@ class MirrorsNotResolvingError(Exception):
 
 
 def _search(
-        number_results: int = 25,
-        _url: str = None,
-        _params: dict = None,
-        ):
+    number_results: int = 25,
+    _url: str = None,
+    _params: dict = None,
+):
 
-    resp = requests.get(
-        url=_url, params=_params
-    )
+    resp = requests.get(url=_url, params=_params)
 
     soup = bs4.BeautifulSoup(resp.text, features="lxml")
 
@@ -68,9 +66,7 @@ def _search(
         pages_to_load = int(math.ceil(nbooks / 25.0))
     search_result = []
     for page in range(1, pages_to_load + 1):
-        if (
-            len(search_result) > number_results
-        ):  # Check if we got all the results
+        if len(search_result) > number_results:  # Check if we got all the results
             break
 
         res = requests.get(
@@ -272,7 +268,11 @@ class Libgenapi(object):
                 "size",
             ]
             parse_result = []
-            for resultRow in soup.html.body.find("table", class_="catalog").find("tbody").find_all("tr"):
+            for resultRow in (
+                soup.html.body.find("table", class_="catalog")
+                .find("tbody")
+                .find_all("tr")
+            ):
                 article = {
                     "doi": None,
                     "author": None,
@@ -294,10 +294,8 @@ class Libgenapi(object):
                 }
                 i = 0
                 for resultColumn in resultRow.find_all("td"):
-                    #print(resultColumn)
                     if i > len(d_keys) - 1:
                         break
-                    #print(resultRow)
                     if d_keys[i] == "doi_and_mirrors":  # Getting doi and mirrors links
                         mirrors = resultRow.find("ul").find_all("a", href=True)
                         article["doi"] = [mirror["href"] for mirror in mirrors]
@@ -312,8 +310,12 @@ class Libgenapi(object):
                         article["issue"]["year"] = temp[0]
                         article["issue"]["month"] = temp[1]
                         article["issue"]["day"] = temp[2]
-                        article["issue"]["volume"] = re.search(r"(?<=volume\s)\d+", str(resultRow)).group()
-                        article["issue"]["issue"] = re.search(r"(?<=issue\s)\d+", str(resultRow)).group()
+                        article["issue"]["volume"] = re.search(
+                            r"(?<=volume\s)\d+", str(resultRow)
+                        ).group()
+                        article["issue"]["issue"] = re.search(
+                            r"(?<=issue\s)\d+", str(resultRow)
+                        ).group()
                         article["issue"]["first_page"] = temp[5]
                         article["issue"]["last_page"] = temp[6]
                     else:
@@ -373,7 +375,10 @@ class Libgenapi(object):
             # body > font:nth-child(7) Displayed first  100  results
             # body > font:nth-child(7) Found 1 results
             nresults = re.search(
-                r"\d+", soup.html.body.find("div", class_="catalog_paginator").find("div", style="float:left").text
+                r"\d+",
+                soup.html.body.find("div", class_="catalog_paginator")
+                .find("div", style="float:left")
+                .text,
             ).group()
 
             nresults = int(nresults)
@@ -397,7 +402,7 @@ class Libgenapi(object):
                         "i": issue,
                         "p": pages,
                         "redirect": "0",
-                        "page": page
+                        "page": page,
                     },
                 )
                 search_result += self.__parse(resp.content.decode())
@@ -433,7 +438,9 @@ class Libgenapi(object):
             ]
 
             parse_result = []
-            for resultRow in soup.html.body.find("table", class_="catalog").tbody.find_all("tr"):
+            for resultRow in soup.html.body.find(
+                "table", class_="catalog"
+            ).tbody.find_all("tr"):
                 book = {
                     "author": None,
                     "series": None,
@@ -447,8 +454,12 @@ class Libgenapi(object):
                 for i, resultColumn in enumerate(resultRow.find_all("td")):
                     if i > len(d_keys) - 1:
                         break
-                    if d_keys[i] == "libgenID_size_fileType_timeAdded_mirrors":  # Getting Libgen Id, size, fileType, time Added and mirror links.
-                        for mirror in resultRow.find("ul", class_="record_mirrors_compact").find_all("a", href=True):
+                    if (
+                        d_keys[i] == "libgenID_size_fileType_timeAdded_mirrors"
+                    ):  # Getting Libgen Id, size, fileType, time Added and mirror links.
+                        for mirror in resultRow.find(
+                            "ul", class_="record_mirrors_compact"
+                        ).find_all("a", href=True):
                             book["mirrors"] += [mirror["href"]]
 
                         book["timeAdded"] = resultRow.find("td", title=True)["title"]
@@ -475,7 +486,10 @@ class Libgenapi(object):
             # body > font:nth-child(7) Displayed first  100  results
             # body > font:nth-child(7) Found 1 results
             nresults = re.search(
-                r"\d+", soup.html.body.find("div", class_="catalog_paginator").find("div", style="float:left").text
+                r"\d+",
+                soup.html.body.find("div", class_="catalog_paginator")
+                .find("div", style="float:left")
+                .text,
             ).group()
 
             nresults = int(nresults)
@@ -492,11 +506,7 @@ class Libgenapi(object):
                     break
                 resp = requests.get(
                     url=self.url,
-                    params={
-                        "s": search_term,
-                        "p": pages,
-                        "page": page
-                    },
+                    params={"s": search_term, "p": pages, "page": page},
                 )
                 search_result += self.__parse(resp.content.decode())
                 if page != pages_to_load:
@@ -512,9 +522,9 @@ class Libgenapi(object):
             collector = []
             for row in table:
                 result = Comic(
-                    url = self.url + row.find("a", href=True)["href"],
-                    published = re.search("\d+", row.text).group(),
-                    title = row.text
+                    url=self.url + row.find("a", href=True)["href"],
+                    published=re.search("\d+", row.text).group(),
+                    title=row.text,
                 )
                 collector += [result]
             return collector
@@ -522,7 +532,9 @@ class Libgenapi(object):
         def search(self, search_term="", pages="", number_results=25):
             # TODO: Add Batch search for comics.
             request = {"t": search_term}
-            cont = requests.post(self.url + "/makeqlist", params=request).content.decode()
+            cont = requests.post(
+                self.url + "/makeqlist", params=request
+            ).content.decode()
 
             soup = bs4.BeautifulSoup(cont, features="lxml")
             table = soup.html.body.find_all("td")
