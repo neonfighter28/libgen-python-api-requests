@@ -555,3 +555,9 @@ class Libgenapi(object):
             "%s", "Deprecated method, use Libgenapi().libgen.search() instead"
         )
         return self.libgen.search(*args, **kwargs)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        ...
