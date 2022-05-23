@@ -23,18 +23,25 @@ _REG_ISBN = r"(ISBN[-]*(1[03])*[ ]*(: ){0,1})*(([0-9Xx][- ]*){13}|([0-9Xx][- ]*)
 _REG_EDITION = r"(\[[0-9] ed\.\])"
 
 
-class MissingMirrorsError(Exception):
+class LibgenApiError(BaseException):
+    """
+    Base exception class of this library
+    """
+
+
+class MissingMirrorsError(LibgenApiError):
     """
     Error shown when there are no mirrors.
     """
 
 
-class MirrorsNotResolvingError(Exception):
+class MirrorsNotResolvingError(LibgenApiError):
     """
     Error shown when none of the mirrors are resolving.
     """
 
-class NoResults(Exception):
+
+class NoResults(LibgenApiError):
     """
     No results found
     """
@@ -45,6 +52,7 @@ class Comic:
     url: str
     published: str
     title: str
+
 
 class Libgenapi(object):
     """
@@ -252,8 +260,7 @@ class Libgenapi(object):
                     "size": None,
                     "mirrors": [],
                 }
-                i = 0
-                for resultColumn in resultRow.find_all("td"):
+                for i, resultColumn in enumerate(resultRow.find_all("td")):
                     if i > len(d_keys) - 1:
                         break
                     if d_keys[i] == "doi_and_mirrors":  # Getting doi and mirrors links
@@ -280,7 +287,7 @@ class Libgenapi(object):
                         article["issue"]["last_page"] = temp[6]
                     else:
                         article[d_keys[i]] = resultColumn.text
-                    i += 1
+
                 parse_result += [article]
             return parse_result
 
@@ -403,7 +410,6 @@ class Libgenapi(object):
                         data = resultRow.find("td", title=True).text
                         book["fileType"] = re.search(r"\w+", data).group()
                         book["size"] = re.search(r"\d+\s\w+", data).group()
-
                     else:
                         book[d_keys[i]] = resultColumn.text.strip("\n")
                 parse_result += [book]
