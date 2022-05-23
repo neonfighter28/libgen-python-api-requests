@@ -25,12 +25,13 @@ Two options:
 Example of usage:
 -----------------
 
-> import libgenapi
+```py3
+import libgenapi
 
-> lg=libgenapi.Libgenapi(["http://[INSERT MIRROR DOMAIN 1 HERE].com","http://[INSERT MIRROR DOMAIN 2 HERE].com]) # You can add as many mirrors as you want.
+lg=libgenapi.Libgenapi(["http://[INSERT MIRROR DOMAIN 1 HERE].com","http://[INSERT MIRROR DOMAIN 2 HERE].com]) # You can add as many mirrors as you want.
 
-> lg.search("python")
-
+lg.search("python")
+```
 
 Then the results are something like this (but... without the crazyness :P real links and titles...):
 
