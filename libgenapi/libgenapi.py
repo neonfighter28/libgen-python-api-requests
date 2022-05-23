@@ -7,17 +7,14 @@ import math
 import random
 import re
 import time
+from dataclasses import dataclass
 
 import bs4
 import requests
 
-from objects import book_obj as Book, Comic
-
 # Logger settings
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
-
-logging.getLogger("requests.packages.urllib3").setLevel(logging.ERROR)
 
 _FORMAT = "%(asctime)-5s %(levelname)s | %(funcName)30s | %(message)s"
 logging.basicConfig(format=_FORMAT, datefmt="%H:%M:%S")
@@ -37,50 +34,17 @@ class MirrorsNotResolvingError(Exception):
     Error shown when none of the mirrors are resolving.
     """
 
+class NoResults(Exception):
+    """
+    No results found
+    """
 
-def _search(
-    number_results: int = 25,
-    _url: str = None,
-    _params: dict = None,
-):
 
-    resp = requests.get(url=_url, params=_params)
-
-    soup = bs4.BeautifulSoup(resp.text, features="lxml")
-
-    # Find a nested tag in the second table element
-    # containing the amount of results
-    #
-    # <body>
-    #   <table></table>
-    #   <table>"text to be extracted"</table>
-    tag = soup.html.body.find_all("table")[1].text
-
-    # Text of said tag starts with a digit (number of results)
-    nbooks = int(re.search(r"\d+", tag).group())
-
-    pages_to_load = int(number_results / 25.0)  # Pages needed to be loaded
-
-    # Check if the pages needed to be loaded are more than the pages available
-    if pages_to_load > int(math.ceil(nbooks / 25.0)):
-        pages_to_load = int(math.ceil(nbooks / 25.0))
-    search_result = []
-    for page in range(1, pages_to_load + 1):
-        if len(search_result) > number_results:  # Check if we got all the results
-            break
-
-        res = requests.get(
-            _url + "/search.php?",
-            params=_params.update({"page": page}),
-        )
-        text = res.content.decode()
-        search_result += self.__parse(text)
-        if page != pages_to_load:
-            # Random delay because if you ask a lot of pages,your ip might get blocked.
-            time.sleep(random.randint(250, 1000) / 1000.0)
-
-    return search_result[:number_results]
-
+@dataclass(repr=True, frozen=True)
+class Comic:
+    url: str
+    published: str
+    title: str
 
 class Libgenapi(object):
     """
@@ -103,7 +67,21 @@ class Libgenapi(object):
 
         def __parse(self, doc):
             i = 0
-            d_keys = Book.d_keys
+            d_keys = [
+                "id",
+                "author",
+                "series_title_edition_and_isbn",
+                "publisher",
+                "year",
+                "pages",
+                "language",
+                "size",
+                "extension",
+                "mirror",
+                "mirror",
+                "mirror",
+                "mirror",
+            ]
             parse_result = []
             soup = bs4.BeautifulSoup(doc, features="lxml")
             table = soup.body.find_all("table")[2]
@@ -237,25 +215,7 @@ class Libgenapi(object):
 
         def __parse(self, g):
             soup = bs4.BeautifulSoup(g, features="lxml")
-            article = {
-                "doi": None,
-                "author": None,
-                "article": None,
-                "doi_owner": None,
-                "journal": None,
-                "issue": {
-                    "year": None,
-                    "month": None,
-                    "day": None,
-                    "volume": None,
-                    "issue": None,
-                    "first_page": None,
-                    "last_page": None,
-                },
-                "issn": None,
-                "size": None,
-                "mirrors": [],
-            }
+
             i = 0
             d_keys = [
                 "doi_and_mirrors",
@@ -346,18 +306,6 @@ class Libgenapi(object):
             Returns:
                 list[dict]: Search Results
             """
-            """
-                return _search(
-                    _url=self.url,
-                    _params={
-                        "search_term": search_term,
-                        "journal_title_issn": journal_title_issn,
-                        "volume_year": volume_year,
-                        "issue": issue,
-                        "pages": pages,
-                    },
-                )
-            """
             resp = requests.get(
                 url=self.url,
                 params={
@@ -417,17 +365,6 @@ class Libgenapi(object):
 
         def __parse(self, g):
             soup = bs4.BeautifulSoup(g, features="lxml")
-            book = {
-                "author": None,
-                "series": None,
-                "title": None,
-                "language": None,
-                "libgenID": None,
-                "size": None,
-                "fileType": None,
-                "timeAdded": None,
-                "mirrors": [],
-            }
             i = 0
             d_keys = [
                 "author",
@@ -520,14 +457,17 @@ class Libgenapi(object):
 
         def __parse(self, table):
             collector = []
-            for row in table:
-                result = Comic(
-                    url=self.url + row.find("a", href=True)["href"],
-                    published=re.search("\d+", row.text).group(),
-                    title=row.text,
-                )
-                collector += [result]
-            return collector
+            try:
+                for row in table:
+                    result = Comic(
+                        url=self.url + row.find("a", href=True)["href"],
+                        published=re.search("\d+", row.text).group(),
+                        title=row.text,
+                    )
+                    collector += [result]
+                return collector
+            except TypeError:
+                raise NoResults("No results found")
 
         def search(self, search_term="", pages="", number_results=25):
             # TODO: Add Batch search for comics.
