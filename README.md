@@ -28,9 +28,12 @@ Example of usage:
 ```py3
 import libgenapi
 
-lg=libgenapi.Libgenapi(["http://[INSERT MIRROR DOMAIN 1 HERE].com","http://[INSERT MIRROR DOMAIN 2 HERE].com]) # You can add as many mirrors as you want.
-
-lg.search("python")
+with libgenapi.Libgenapi([
+    # You can add as many mirrors as you want
+    "http://[INSERT MIRROR DOMAIN 1 HERE].com",
+    "http://[INSERT MIRROR DOMAIN 2 HERE].com",
+    ]) as lg:
+        lg.search("python")
 ```
 
 Then the results are something like this (but... without the crazyness :P real links and titles...):
